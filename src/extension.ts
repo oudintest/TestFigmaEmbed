@@ -11,9 +11,10 @@ let accessToken = '';
 let useID = '';
 let clientID = '';
 let clientSecret = '';
+let embedURL = 'https://embed.figma.com/design/bGRYHtpnPIua9w2ifQN9dz/%E6%96%B0%E7%89%88%E9%A1%B5%E9%9D%A2?node-id=90-1312&embed-host=share';
 
 class OAuthServer {
-  private server: http.Server | null = null;
+  private server: http.Server | null = null; 
 
   close() {
     if (this.server) {
@@ -78,7 +79,7 @@ class OAuthServer {
                   </style>
                 </head>
                 <body>
-                    <iframe id="figma-frame" src="https://embed.figma.com/design/bGRYHtpnPIua9w2ifQN9dz/%E6%96%B0%E7%89%88%E9%A1%B5%E9%9D%A2?node-id=90-1312&embed-host=share"></iframe>
+                    <iframe id="figma-frame" src="${embedURL}"></iframe>
                     <script>
                         window.addEventListener('message', (event) => {
                             if (event.data.type === 'figma-auth-required') {
@@ -141,6 +142,9 @@ export function activate(context: vscode.ExtensionContext) {
             } else {
               clientID = message.clientID;
 						  clientSecret = message.clientSecret;
+            }
+            if (message.embedUrl) {
+              embedURL = message.embedUrl;
             }
             oauthServer.close();
 						try {
@@ -441,24 +445,22 @@ function getWebviewContent() {
 
       const clientID = oauthForm.clientID.value.trim();
       const clientSecret = oauthForm.clientSecret.value.trim();
+      const embedUrl = oauthForm.embedUrl.value.trim();
 
       if (!clientID || !clientSecret) {
         showError('Please enter Client ID and Client Secret');
         return;
       }
-
-      // 先尝试更新 iframe，如果 URL 无效则阻止提交
       if (!updateFigmaFrame()) {
         return;
       }
-
-      // 禁用按钮防止重复提交
       oauthBtn.disabled = true;
 
       vscode.postMessage({
         command: 'oauth',
         clientID,
-        clientSecret
+        clientSecret,
+        embedUrl
       });
     });
 
