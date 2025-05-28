@@ -5,13 +5,117 @@ import * as http from 'http';
 import axios from 'axios';
 
 const PORT = 3001;
-
 const REDIRECT_URI = 'http://localhost:3001/figma/callback';
 const SCOPE = 'file_read';
 let accessToken = '';
 let useID = '';
 let clientID = '';
 let clientSecret = '';
+
+class OAuthServer {
+  private server: http.Server | null = null;
+
+  close() {
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+  }
+
+  async getOAuthCode(): Promise<string | undefined> {
+    // Close any existing server
+    this.close();
+
+    return new Promise((resolve) => {
+      this.server = http.createServer((req, res) => {
+        console.log(String(req.url));
+        if (typeof req.url !== 'string') {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid request');
+          this.close();
+          resolve(undefined);
+          return;
+        }
+        let url: URL;
+        try {
+          url = new URL(req.url, `http://localhost:${PORT}`);
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'text/plain' });
+          res.end('Invalid URL');
+          this.close();
+          resolve(undefined);
+          return;
+        }
+        if (url.pathname === '/figma/callback/index.html') {
+          res.writeHead(200, { 
+            'Content-Type': 'text/html',
+            'Authorization': `Bearer ${accessToken}`,
+            'X-User-Id': `${useID}`,
+          });
+          res.end(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Figma Embed</title>
+                <style>
+                    body, html {
+                        margin: 0;
+                        padding: 0;
+                        height: 100%;
+                        overflow: hidden;
+                    }
+                    iframe {
+                        width: 100%;
+                        height: 100%;
+                        border: none;
+                    }
+                    .figma-container {
+                      margin-top: 20px;
+                      width: 100%;
+                      display: flex;
+                      justify-content: center;
+                    }
+                  </style>
+                </head>
+                <body>
+                    <iframe id="figma-frame" src="https://embed.figma.com/design/bGRYHtpnPIua9w2ifQN9dz/%E6%96%B0%E7%89%88%E9%A1%B5%E9%9D%A2?node-id=90-1312&embed-host=share"></iframe>
+                    <script>
+                        window.addEventListener('message', (event) => {
+                            if (event.data.type === 'figma-auth-required') {
+                                fetch('/figma-proxy', {
+                                    headers: {
+                                        'Authorization': 'Bearer ${accessToken}'
+                                    }
+                                });
+                            }
+                        });
+                    </script>
+                </body>
+                </html>
+          `);
+        } else if (url.pathname === '/figma/callback') {
+          const code = url.searchParams.get('code');
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end('<h2>OAuth2 success! Please back to VSCode.</h2>');
+          resolve(code || undefined);
+          return;
+        } else {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not found');
+          resolve(undefined);
+        }
+      });
+
+      this.server.listen(PORT, async () => {
+        const state = Math.random().toString(36).slice(2);
+        const authUrl: string = `https://www.figma.com/oauth?client_id=${clientID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${SCOPE}&state=${state}&response_type=code`;
+        vscode.env.openExternal(vscode.Uri.parse(authUrl)); 
+      }); 
+    });
+  }
+}
+
+const oauthServer = new OAuthServer();
 
 export function activate(context: vscode.ExtensionContext) {
 	console.log('Congratulations, your extension "testfigmaembed" is now active!');
@@ -38,8 +142,9 @@ export function activate(context: vscode.ExtensionContext) {
               clientID = message.clientID;
 						  clientSecret = message.clientSecret;
             }
+            oauthServer.close();
 						try {
-							const code = await getOAuthCode();
+							const code = await oauthServer.getOAuthCode();
 							if (!code) {
 								vscode.window.showErrorMessage('cannot achieve code!');
 								return;
@@ -82,7 +187,9 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // This method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+  oauthServer.close();
+}
 
 function getWebviewContent() {
   return `
@@ -185,7 +292,7 @@ function getWebviewContent() {
       height: 450px;
       border-radius: 6px;
     }
-    /* 响应式 */
+
     @media (max-width: 600px) {
       form {
         flex-direction: column;
@@ -198,12 +305,27 @@ function getWebviewContent() {
         height: 300px;
       }
     }
-    /* 错误提示 */
+
     .error-message {
       margin-top: 12px;
       color: #d93025;
       font-weight: 600;
     }
+   
+    .sr-only {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+    input#embedUrl {
+  flex-basis: 100%;
+}
   </style>
 </head>
 <body>
@@ -229,6 +351,15 @@ function getWebviewContent() {
         autocomplete="off"
         required
         aria-required="true"
+      />
+      <label for="embedUrl" class="sr-only">Figma Embed URL</label>
+      <input
+        type="text"
+        id="embedUrl"
+        name="embedUrl"
+        placeholder="Figma Embed URL (optional)"
+        autocomplete="off"
+        aria-describedby="embedUrlHelp"
       />
       <button type="submit" id="oauthBtn">start OAuth2</button>
     </form>
@@ -267,22 +398,41 @@ function getWebviewContent() {
     const userIdValue = document.getElementById('userIdValue');
     const errorMessage = document.getElementById('errorMessage');
     const figmaFrame = document.getElementById('figmaFrame');
+    const embedUrlInput = document.getElementById('embedUrl');
 
-  
+    
+    const DEFAULT_FIGMA_EMBED_URL = 'https://embed.figma.com/design/bGRYHtpnPIua9w2ifQN9dz/%E6%96%B0%E7%89%88%E9%A1%B5%E9%9D%A2?node-id=90-1312&embed-host=share';
+
     function clearError() {
       errorMessage.style.display = 'none';
       errorMessage.textContent = '';
     }
 
-   
     function showError(msg) {
       errorMessage.textContent = msg;
       errorMessage.style.display = 'block';
     }
 
-    
+    function isValidUrl(url) {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }
     function updateFigmaFrame() {
-      figmaFrame.src = 'https://embed.figma.com/design/bGRYHtpnPIua9w2ifQN9dz/%E6%96%B0%E7%89%88%E9%A1%B5%E9%9D%A2?node-id=90-1312&embed-host=share';
+      const url = embedUrlInput.value.trim();
+      if (url) {
+        if (!isValidUrl(url)) {
+          showError('Please enter valid URL!');
+          return false;
+        }
+        figmaFrame.src = url;
+      } else {
+        figmaFrame.src = DEFAULT_FIGMA_EMBED_URL;
+      }
+      return true;
     }
 
     oauthForm.addEventListener('submit', (e) => {
@@ -293,12 +443,18 @@ function getWebviewContent() {
       const clientSecret = oauthForm.clientSecret.value.trim();
 
       if (!clientID || !clientSecret) {
-        showError('请填写 Client ID 和 Client Secret');
+        showError('Please enter Client ID and Client Secret');
         return;
       }
 
+      // 先尝试更新 iframe，如果 URL 无效则阻止提交
+      if (!updateFigmaFrame()) {
+        return;
+      }
 
+      // 禁用按钮防止重复提交
       oauthBtn.disabled = true;
+
       vscode.postMessage({
         command: 'oauth',
         clientID,
@@ -316,8 +472,6 @@ function getWebviewContent() {
         tokenInfo.style.display = 'block';
         accessTokenValue.textContent = message.accessToken || '';
         userIdValue.textContent = message.userId || '';
-
-        updateFigmaFrame();
       } else if (message.type === 'error') {
         oauthBtn.disabled = false;
         showError(message.error || 'unknown error!');
@@ -327,94 +481,4 @@ function getWebviewContent() {
 </body>
 </html>
   `;
-}
-
-async function getOAuthCode(): Promise<string | undefined> {
-  return new Promise((resolve) => {
-	const server = http.createServer((req, res) => {
-		console.log(String(req.url));
-
-      if (typeof req.url !== 'string') {
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Invalid request');
-        server.close();
-        resolve(undefined);
-        return;
-      }
-      let url: URL;
-      try {
-        url = new URL(req.url, `http://localhost:${PORT}`);
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Invalid URL');
-        server.close();
-        resolve(undefined);
-        return;
-      }
-	  if (url.pathname === '/figma/callback/index.html') {
-		res.writeHead(200, { 
-			'Content-Type': 'text/html',
-			'Authorization': `Bearer ${accessToken}`,
-			'X-User-Id': `${useID}`,
-		});
-		res.end(`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Figma Embed</title>
-                    <style>
-                        body, html {
-                            margin: 0;
-                            padding: 0;
-                            height: 100%;
-                            overflow: hidden;
-                        }
-                        iframe {
-                            width: 100%;
-                            height: 100%;
-                            border: none;
-        }
-        .figma-container {
-          margin-top: 20px;
-          width: 100%;
-          display: flex;
-          justify-content: center;
-        }
-      </style>
-    </head>
-                <body>
-                    <iframe id="figma-frame" src="https://embed.figma.com/design/bGRYHtpnPIua9w2ifQN9dz/%E6%96%B0%E7%89%88%E9%A1%B5%E9%9D%A2?node-id=90-1312&embed-host=share"></iframe>
-                    <script>
-                        window.addEventListener('message', (event) => {
-						debugger
-                            if (event.data.type === 'figma-auth-required') {
-                                fetch('/figma-proxy', {
-                                    headers: {
-                                        'Authorization': 'Bearer ${accessToken}'
-                                    }
-                                });
-                            }
-                        });
-                    </script>
-                </body>
-                </html>
-            `);
-	  } else if (url.pathname === '/figma/callback') {
-        const code = url.searchParams.get('code');
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<h2>OAuth2 success! Please back to VSCode.</h2>');
-        resolve(code || undefined);
-        return;
-      } else {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not found');
-		resolve(undefined);
-      }
-    });
-    server.listen(PORT, async () => {
-      const state = Math.random().toString(36).slice(2);
-      const authUrl: string = `https://www.figma.com/oauth?client_id=${clientID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${SCOPE}&state=${state}&response_type=code`;
-      vscode.env.openExternal(vscode.Uri.parse(authUrl)); 
-    }); 
-  });
 }

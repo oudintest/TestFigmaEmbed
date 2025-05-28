@@ -1,71 +1,29 @@
-# testfigmaembed README
+# README
 
-This is the README for your extension "testfigmaembed". After writing up a brief description, we recommend including the following sections.
+This repository is a VSCode extension project designed to embed Figma within the extension.
 
-## Features
+## Setup
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+1. Clone the repository and install dependencies:
+    ```
+    git clone https://github.com/oudintest/TestFigmaEmbed.git
+    cd TestFigmaEmbed
+    npm install
+    ```
 
-For example if there is an image subfolder under your extension project workspace:
+2. Open the project in VSCode, then click the "Run Extension" button in the debug panel to launch the extension.
 
-\!\[feature X\]\(images/feature-x.png\)
+## Usage
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
 
-## Requirements
+1. After launching the extension, press Cmd+Shift+P on macOS to open the command palette, then type and select the Test figma embed command.
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+    ![](./assets/tf_1.png)
 
-## Extension Settings
+2. A page will appear where you can enter your **client_id** and **client_secret**. Click the start OAuth2 button to perform Figma OAuth2 authentication.
+    ![](./assets/tf_2.png)
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+> Tip: For testing convenience, the Redirect URLs are currently set to http://localhost:3001/figma/callback
 
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+3. After successful authentication, the extension will display the obtained **access_token** and **user_id_string**, and attempt to embed a Figma file that the current user has access to. The result looks like this:
+    ![](./assets/tf_4.png)
